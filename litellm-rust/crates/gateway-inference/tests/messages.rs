@@ -75,18 +75,34 @@ async fn messages_reaches_the_provider_and_preserves_json_or_sse(
     assert!(!requests[0].headers.contains_key("x-request-id"));
 }
 
+#[rstest]
+#[case::invalid_json("{".into())]
+#[case::array("[]".into())]
+#[case::null("null".into())]
+#[case::missing_model(json!({"messages": [], "max_tokens": 16}).to_string())]
+#[case::unknown_model(json!({"model": "missing/model", "messages": [], "max_tokens": 16}).to_string())]
+#[case::invalid_messages(json!({"model": "public/model", "messages": "invalid", "max_tokens": 16}).to_string())]
+#[case::missing_max_tokens(json!({"model": "public/model", "messages": [{"role": "user", "content": "hello"}]}).to_string())]
 #[tokio::test]
-async fn invalid_messages_stays_an_anthropic_error() {
-    let response = support::post(
-        support::app("anthropic/test-model", "http://127.0.0.1:1"),
-        "/v1/messages",
-        json!({"model": "public/model", "messages": "invalid", "max_tokens": 16}),
-    )
-    .await;
+async fn invalid_messages_stays_an_anthropic_error_without_provider_io(#[case] body: String) {
+    let upstream = MockServer::start().await;
+    let request = Request::post("/v1/messages")
+        .header("content-type", "application/json")
+        .header("x-request-id", "invalid-messages-request")
+        .body(Body::from(body))
+        .unwrap();
+    let response = support::app("anthropic/test-model", &upstream.uri())
+        .oneshot(request)
+        .await
+        .unwrap();
+
     assert_eq!(response.status(), 400);
     let body = support::json(response).await;
     assert_eq!(body["type"], "error");
     assert_eq!(body["error"]["type"], "invalid_request_error");
+    assert_eq!(body["request_id"], "invalid-messages-request");
+    assert!(!body["error"]["message"].as_str().unwrap().is_empty());
+    assert!(upstream.received_requests().await.unwrap().is_empty());
 }
 
 const FIRST_EVENT: &str = "event: message_start\ndata: {}\n\n";

@@ -852,4 +852,78 @@ mod tests {
         assert_eq!(block.extra.get("source"), wire.get("source"));
         assert_eq!(serde_json::to_value(block).unwrap(), wire);
     }
+
+    #[rstest]
+    #[case::zero(0, 0)]
+    #[case::above_float_precision(9_007_199_254_740_993, 9_007_199_254_740_993)]
+    #[case::integer_limits(u64::MAX, i64::MAX)]
+    #[case::negative_top_k(1, i64::MIN)]
+    fn request_integer_fields_preserve_exact_wire_values(
+        #[case] max_tokens: u64,
+        #[case] top_k: i64,
+    ) {
+        let wire = format!(
+            r#"{{"model":"test","messages":[],"max_tokens":{max_tokens},"top_k":{top_k}}}"#
+        );
+        let parsed: MessagesRequest = serde_json::from_str(&wire).unwrap();
+        assert_eq!(parsed.params.max_tokens, Some(max_tokens));
+        assert_eq!(parsed.params.top_k, Some(top_k));
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            serde_json::from_str::<Value>(&wire).unwrap()
+        );
+    }
+
+    #[rstest]
+    #[case::negative_max_tokens(r#""max_tokens":-1"#)]
+    #[case::fractional_max_tokens(r#""max_tokens":1.5"#)]
+    #[case::overflow_max_tokens(r#""max_tokens":18446744073709551616"#)]
+    #[case::string_max_tokens(r#""max_tokens":"16""#)]
+    #[case::boolean_max_tokens(r#""max_tokens":true"#)]
+    #[case::overflow_top_k(r#""top_k":9223372036854775808"#)]
+    #[case::underflow_top_k(r#""top_k":-9223372036854775809"#)]
+    #[case::fractional_top_k(r#""top_k":1.5"#)]
+    #[case::string_stream(r#""stream":"true""#)]
+    #[case::numeric_stream(r#""stream":1"#)]
+    #[case::non_string_stop_sequence(r#""stop_sequences":[null]"#)]
+    fn request_rejects_invalid_scalar_fields(#[case] field: &str) {
+        let wire = format!(r#"{{"model":"test","messages":[],{field}}}"#);
+        assert!(serde_json::from_str::<MessagesRequest>(&wire).is_err());
+    }
+
+    #[rstest]
+    #[case::missing(json!({}), json!({}))]
+    #[case::null(
+        json!({"max_tokens":null,"system":null,"tools":null,"stream":null,"metadata":null,"future":null}),
+        json!({"future":null})
+    )]
+    #[case::empty(
+        json!({"max_tokens":0,"system":"","tools":[],"stream":false,"metadata":{},"future":null}),
+        json!({"max_tokens":0,"system":"","tools":[],"stream":false,"metadata":{},"future":null})
+    )]
+    fn request_distinguishes_empty_values_and_unknown_nulls_from_absent_options(
+        #[case] fields: Value,
+        #[case] expected: Value,
+    ) {
+        let required = json!({"model":"test","messages":[]});
+        let wire: Map<String, Value> = required
+            .as_object()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .chain(fields.as_object().unwrap().clone())
+            .collect();
+        let expected: Map<String, Value> = required
+            .as_object()
+            .unwrap()
+            .clone()
+            .into_iter()
+            .chain(expected.as_object().unwrap().clone())
+            .collect();
+        let parsed: MessagesRequest = serde_json::from_value(Value::Object(wire)).unwrap();
+        assert_eq!(
+            serde_json::to_value(parsed).unwrap(),
+            Value::Object(expected)
+        );
+    }
 }

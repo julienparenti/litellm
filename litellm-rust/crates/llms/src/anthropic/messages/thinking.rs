@@ -1361,6 +1361,14 @@ mod tests {
     #[case::float_below_a_tier(json!(1023.9), "low")]
     #[case::string_budget(json!(" 16_000 "), "xhigh")]
     #[case::negative_budget(json!(-5), "low")]
+    #[case::signed_underscored_budget(json!(" +8_192 "), "xhigh")]
+    #[case::negative_underscored_budget(json!("-8_192"), "low")]
+    #[case::unsigned_integer_limit(json!(u64::MAX), "xhigh")]
+    #[case::positive_string_overflow(json!("184467440737095516160"), "xhigh")]
+    #[case::negative_string_overflow(json!("-184467440737095516160"), "low")]
+    #[case::negative_fraction_truncates_toward_zero(json!(-0.9), "low")]
+    #[case::below_medium_fraction(json!(2047.9), "low")]
+    #[case::at_medium_fraction(json!(2048.0), "medium")]
     fn legacy_budgets_read_like_python_numbers(#[case] budget: Value, #[case] effort: &str) {
         let translated = translate_thinking(
             request(
@@ -1380,6 +1388,14 @@ mod tests {
 
     #[rstest]
     #[case::text(json!("lots"), "str")]
+    #[case::leading_separator(json!("_8192"), "str")]
+    #[case::trailing_separator(json!("8192_"), "str")]
+    #[case::repeated_separator(json!("8__192"), "str")]
+    #[case::two_signs(json!("--8192"), "str")]
+    #[case::sign_only(json!("+"), "str")]
+    #[case::decimal_string(json!("8192.0"), "str")]
+    #[case::exponent_string(json!("8e3"), "str")]
+    #[case::whitespace_only(json!(" "), "str")]
     #[case::list(json!([1]), "list")]
     #[case::null(Value::Null, "NoneType")]
     #[case::boolean(json!(true), "bool")]
